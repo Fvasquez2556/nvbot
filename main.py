@@ -5,6 +5,7 @@ from tabulate import tabulate
 import csv
 import os
 from datetime import datetime
+import time
 
 if __name__ == '__main__':
     print("🔄 Iniciando NVBot...")
@@ -77,3 +78,15 @@ if __name__ == '__main__':
         print("\n⚠️ No se detectaron señales con condiciones de rebote ≥ 85%.")
     print("✅ NVBot finalizado.")
     print("🔄 Revisa el archivo data/signals.csv para más detalles.")
+    print("🔄 Ejecuta feedback.py para evaluar las señales generadas."
+          " ¡Gracias por usar NVBot!")
+
+    # Bucle infinito para escaneo periódico
+    while True:
+        print("🔄 Iniciando nuevo ciclo de escaneo...\n")
+        # Llama a la función principal de escaneo aquí, por ejemplo:
+        # ejecutar_ciclo()
+        print("\n⏳ Esperando 5 minutos antes del próximo ciclo...\n")
+        time.sleep(60)  # Espera de 1 minuto (60 segundos)
+    
+    
