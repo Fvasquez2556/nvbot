@@ -1,31 +1,47 @@
+
+import time
+import os
+import csv
+from datetime import datetime
+from tabulate import tabulate
+import ccxt
+
 from scanner import obtener_datos_usdt
 from indicators import calcular_rsi, calcular_ema
 from analyzer import analizar_tendencia
-from tabulate import tabulate
-import ccxt
 from rebote_detector import (
     calcular_promedios_vh,
     detectar_rebotes,
     evaluar_probabilidad,
     sugerir_entrada
 )
-import csv
-import os
-from datetime import datetime
-import time
-
 
 exchange = ccxt.binance({
     "enableRateLimit": True,
 })
 
-def analizar_pares():
+# Crea carpeta y archivo CSV si no existen
+os.makedirs("data", exist_ok=True)
+archivo_csv = "data/signals.csv"
+if not os.path.exists(archivo_csv):
+    with open(archivo_csv, mode="w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow([
+            "timestamp", "par", "precio_actual", "tendencia",
+            "RSI", "probabilidad", "rango_subida", "lapso"
+        ])
+
+def analizar_rebotes_rapidos():
+    print("🔎 Ejecutando análisis de rebotes rápidos...\n")
     mercados = exchange.load_markets()
-    pares_usdt = [symbol for symbol in mercados if symbol.endswith("/USDT")]
+    pares_spot_activos = [
+        symbol for symbol, data in mercados.items()
+        if data.get("spot", False)
+        and data.get("active", True)
+        and symbol.endswith("/USDT")
+    ]
 
-    print("Analizando rebotes potenciales...\n")
-
-    for symbol in pares_usdt:
+    for symbol in pares_spot_activos:
         try:
             rebotes = detectar_rebotes(exchange, symbol)
             for rebote in rebotes:
@@ -42,46 +58,21 @@ def analizar_pares():
         except Exception as e:
             print(f"[Error] {symbol}: {e}")
 
-if __name__ == "__main__":
-    while True:
-        analizar_pares()
-        print("Esperando 60 segundos para el siguiente análisis...\n")
-        time.sleep(60)
-
-if __name__ == '__main__':
-    print("🔄 Iniciando NVBot...")
-
-    # Crear carpeta data si no existe
-    os.makedirs("data", exist_ok=True)
-    archivo_csv = "data/signals.csv"
-
-    # Crear archivo y encabezado si no existe
-    if not os.path.exists(archivo_csv):
-        with open(archivo_csv, mode="w", newline="") as file:
-            writer = csv.writer(file)
-            writer.writerow([
-                "timestamp", "par", "precio_actual", "tendencia",
-                "RSI", "probabilidad", "rango_subida", "lapso"
-            ])
-
-    # Obtener datos de múltiples pares
+def analizar_tendencias_lentas():
+    print("📊 Ejecutando análisis de tendencias (RSI/EMA)...")
     datos = obtener_datos_usdt(timeframe="5m", limite=144, max_pares=75)
-
     resultados_filtrados = []
 
     for par, df in datos.items():
         if df.empty:
             continue
 
-        # Calcular indicadores
         df = calcular_rsi(df)
         df = calcular_ema(df, period=8)
         df = calcular_ema(df, period=21)
 
-        # Analizar
         analisis = analizar_tendencia(df)
 
-        # Filtrar señales de subida con probabilidad >= 85%
         if (analisis["tendencia"] == "ALCISTA" and 
             analisis["probabilidad"] >= 85 and 
             analisis["rango_subida"] >= 5):
@@ -96,7 +87,6 @@ if __name__ == '__main__':
                 f"{analisis['precio_actual']:.4f}"
             ])
 
-            # Guardar en CSV
             with open(archivo_csv, mode="a", newline="") as file:
                 writer = csv.writer(file)
                 writer.writerow([
@@ -110,83 +100,18 @@ if __name__ == '__main__':
                     analisis["lapso"]
                 ])
 
-    # Mostrar resultados finales
     if resultados_filtrados:
         headers = ["Par", "Tendencia", "Subida Estimada", "Lapso", "Probabilidad", "RSI", "Precio Actual"]
-        print("\n📈 Señales de posible rebote detectadas:")
+        print("📈 Señales detectadas:")
         print(tabulate(resultados_filtrados, headers=headers, tablefmt="fancy_grid"))
     else:
-        print("\n⚠️ No se detectaron señales con condiciones de rebote ≥ 85%.")
-    print("✅ NVBot finalizado.")
-    print("🔄 Revisa el archivo data/signals.csv para más detalles.")
-    print("🔄 Ejecuta feedback.py para evaluar las señales generadas."
-          " ¡Gracias por usar NVBot!")
+        print("⚠️ No se detectaron señales con condiciones de rebote ≥ 85%.")
 
-    # Definir la función para ejecutar un ciclo de escaneo
-    def ejecutar_ciclo():
-        # Obtener datos de múltiples pares
-        datos = obtener_datos_usdt(timeframe="5m", limite=144, max_pares=75)
-
-        resultados_filtrados = []
-
-        for par, df in datos.items():
-            if df.empty:
-                continue
-
-            # Calcular indicadores
-            df = calcular_rsi(df)
-            df = calcular_ema(df, period=8)
-            df = calcular_ema(df, period=21)
-
-            # Analizar
-            analisis = analizar_tendencia(df)
-
-            # Filtrar señales de subida con probabilidad >= 85%
-            if (analisis["tendencia"] == "ALCISTA" and 
-                analisis["probabilidad"] >= 85 and 
-                analisis["rango_subida"] >= 5):
-
-                resultados_filtrados.append([
-                    par,
-                    analisis["tendencia"],
-                    f"{analisis['rango_subida']}%",
-                    analisis["lapso"],
-                    f"{analisis['probabilidad']}%",
-                    f"{analisis['rsi']:.2f}",
-                    f"{analisis['precio_actual']:.4f}"
-                ])
-
-                # Guardar en CSV
-                with open(archivo_csv, mode="a", newline="") as file:
-                    writer = csv.writer(file)
-                    writer.writerow([
-                        datetime.utcnow().isoformat(),
-                        par,
-                        analisis["precio_actual"],
-                        analisis["tendencia"],
-                        round(analisis["rsi"], 2),
-                        analisis["probabilidad"],
-                        analisis["rango_subida"],
-                        analisis["lapso"]
-                    ])
-
-        # Mostrar resultados finales
-        if resultados_filtrados:
-            headers = ["Par", "Tendencia", "Subida Estimada", "Lapso", "Probabilidad", "RSI", "Precio Actual"]
-            print("\n📈 Señales de posible rebote detectadas:")
-            print(tabulate(resultados_filtrados, headers=headers, tablefmt="fancy_grid"))
-        else:
-            print("\n⚠️ No se detectaron señales con condiciones de rebote ≥ 85%.")
-        print("✅ NVBot finalizado.")
-        print("🔄 Revisa el archivo data/signals.csv para más detalles.")
-
-    # Bucle infinito para escaneo periódico
+if __name__ == "__main__":
+    print("🔄 Iniciando NVBot con pares activos del mercado Spot...\n")
     while True:
-        print("🔄 Iniciando nuevo ciclo de escaneo...\n")
-        print("🔎 Ejecutando análisis de rebotes adicionales...")
-        analizar_pares()
-        ejecutar_ciclo()
-        print("\n⏳ Esperando 1 minuto antes del próximo ciclo...\n")
-        time.sleep(60)  # Espera de 1 minuto (60 segundos)
-    
-    
+        analizar_rebotes_rapidos()
+        analizar_tendencias_lentas()
+        print("⏳ Esperando 60 segundos antes del próximo análisis...\n")
+        time.sleep(60)
+        print("🔄 Reanudando análisis...\n")
