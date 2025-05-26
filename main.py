@@ -2,10 +2,51 @@ from scanner import obtener_datos_usdt
 from indicators import calcular_rsi, calcular_ema
 from analyzer import analizar_tendencia
 from tabulate import tabulate
+import ccxt
+from rebote_detector import (
+    calcular_promedios_vh,
+    detectar_rebotes,
+    evaluar_probabilidad,
+    sugerir_entrada
+)
 import csv
 import os
 from datetime import datetime
 import time
+
+
+exchange = ccxt.binance({
+    "enableRateLimit": True,
+})
+
+def analizar_pares():
+    mercados = exchange.load_markets()
+    pares_usdt = [symbol for symbol in mercados if symbol.endswith("/USDT")]
+
+    print("Analizando rebotes potenciales...\n")
+
+    for symbol in pares_usdt:
+        try:
+            rebotes = detectar_rebotes(exchange, symbol)
+            for rebote in rebotes:
+                probabilidad = evaluar_probabilidad(rebote)
+                if probabilidad >= 0.85:
+                    entrada = sugerir_entrada(exchange, symbol)
+                    print(f"📈 Señal detectada en {symbol}")
+                    print(f" - Tipo: {rebote['tipo']}")
+                    print(f" - Variación: {rebote['variacion']}% en {rebote['lapso']} velas de {rebote['intervalo']}")
+                    print(f" - Probabilidad estimada: {round(probabilidad*100, 2)}%")
+                    if entrada:
+                        print(f" - Entrada sugerida: {entrada['entrada_recomendada']} ({entrada['momento']})")
+                    print("-" * 50)
+        except Exception as e:
+            print(f"[Error] {symbol}: {e}")
+
+if __name__ == "__main__":
+    while True:
+        analizar_pares()
+        print("Esperando 60 segundos para el siguiente análisis...\n")
+        time.sleep(60)
 
 if __name__ == '__main__':
     print("🔄 Iniciando NVBot...")
@@ -142,6 +183,8 @@ if __name__ == '__main__':
     # Bucle infinito para escaneo periódico
     while True:
         print("🔄 Iniciando nuevo ciclo de escaneo...\n")
+        print("🔎 Ejecutando análisis de rebotes adicionales...")
+        analizar_pares()
         ejecutar_ciclo()
         print("\n⏳ Esperando 1 minuto antes del próximo ciclo...\n")
         time.sleep(60)  # Espera de 1 minuto (60 segundos)
