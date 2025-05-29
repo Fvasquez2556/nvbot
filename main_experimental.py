@@ -8,8 +8,8 @@ from rebote_detector import (
     evaluar_probabilidad,
     sugerir_entrada
 )
+from signal_logger import registrar_senal_csv
 
-# Inicializar exchange
 exchange = ccxt.binance({ "enableRateLimit": True })
 
 def filtrar_pares_usdt_activos(exchange):
@@ -20,7 +20,7 @@ def filtrar_pares_usdt_activos(exchange):
             pares.append(symbol)
     return pares
 
-def analizar_rebotes_y_mostrar():
+def analizar_rebotes_experimental():
     pares_usdt = filtrar_pares_usdt_activos(exchange)
     resultados = []
 
@@ -28,11 +28,17 @@ def analizar_rebotes_y_mostrar():
         try:
             rebotes = detectar_rebotes(exchange, symbol)
             for rebote in rebotes:
+                if rebote["variacion"] < 3.5:
+                    continue
+
                 probabilidad = evaluar_probabilidad(rebote)
-                if probabilidad < 0.85:
+                if probabilidad < 0.75:
                     continue
 
                 entrada = sugerir_entrada(exchange, symbol)
+                if not entrada:
+                    continue
+
                 promedios = calcular_promedios_vh(exchange, symbol, intervals=["1d"])
                 ohlcv = exchange.fetch_ohlcv(symbol, timeframe="5m", limit=288)
                 precios = [candle[4] for candle in ohlcv]
@@ -41,14 +47,14 @@ def analizar_rebotes_y_mostrar():
                 promedio_24h = round(sum(precios) / len(precios), 4)
                 precio_actual = precios[-1]
 
-                # Calcular cuántas veces hubo una subida >=5% en una vela
                 rebotes_5 = sum(1 for high, low in zip(maximos, minimos)
                                 if (high - low) / low >= 0.05)
 
-                # Verificar drawdown antes de subida (simplificado)
-                drawdown = (entrada["entrada_recomendada"] - minimos[-1]) / entrada["entrada_recomendada"]
-                if drawdown > 0.02:
-                    continue  # se descarta si la caída antes de subir es >2%
+                drawdown = (entrada["entrada_recomendada"] - min(minimos[-3:])) / entrada["entrada_recomendada"]
+                if drawdown > 0.05:
+                    continue
+
+                confianza = "ALTA" if probabilidad >= 0.85 else "MODERADA"
 
                 resultados.append([
                     symbol,
@@ -57,24 +63,31 @@ def analizar_rebotes_y_mostrar():
                     f"{rebotes_5} velas ≥5%",
                     f"{rebote['variacion']}%",
                     f"{rebote['lapso'] * int(rebote['intervalo'].replace('m', ''))} min",
-                    entrada["entrada_recomendada"]
+                    entrada["entrada_recomendada"],
+                    confianza
                 ])
+
+                registrar_senal_csv(
+                    symbol,
+                    precio_actual,
+                    entrada["entrada_recomendada"],
+                    rebote["variacion"],
+                    rebote["lapso"] * int(rebote["intervalo"].replace("m", "")),
+                    probabilidad
+                )
         except Exception as e:
             print(f"[Error] {symbol}: {e}")
 
-    # Mostrar tabla
     if resultados:
         headers = [
-            "Par", "Precio Prom. 24h", "Precio Actual",
-            "# Rebotes ≥5%", "Rebote Actual", "En", "Entrada Recomendada"
+            "Par", "Prom. 24h", "Actual",
+            "# Rebotes ≥5%", "Rebote", "En", "Entrada", "Confianza"
         ]
         print(tabulate(resultados, headers=headers, tablefmt="fancy_grid"))
     else:
-        print("⚠️ No se encontraron señales con probabilidad ≥ 85% y drawdown ≤ 2%.")
+        print("⚠️ No se encontraron señales en modo experimental.")
 
 if __name__ == "__main__":
     while True:
-        print("🔄 Analizando pares USDT activos en Binance...\n")
-        analizar_rebotes_y_mostrar()
-# This code is a complete script that integrates the rebote detection functionality with Binance's API.
-# It fetches active USDT pairs, detects rebounds, evaluates probabilities, suggests entry points,
+        print("🔄 MODO EXPERIMENTAL: analizando señales con condiciones flexibles...\n")
+        analizar_rebotes_experimental()
